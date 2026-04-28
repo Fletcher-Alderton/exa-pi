@@ -12,6 +12,7 @@ function normalizeApiKey(value: unknown, source: string): string {
 }
 
 export async function getApiKey(authStorage: AuthStorage): Promise<string> {
+  authStorage.reload();
   const credential = authStorage.get(EXA_AUTH_PROVIDER);
   if (!credential) {
     throw new Error(

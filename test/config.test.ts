@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { AuthStorage } from "@mariozechner/pi-coding-agent";
@@ -9,6 +12,18 @@ test("reads the Exa apiKey from Pi auth.json storage", async () => {
   const authStorage = AuthStorage.inMemory({ exa: { type: "api_key", key: " auth-key " } });
 
   assert.equal(await getApiKey(authStorage), "auth-key");
+});
+
+test("reloads auth.json before reading the Exa apiKey", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "exa-pi-auth-test-"));
+  const authPath = join(dir, "auth.json");
+  await mkdir(dir, { recursive: true });
+  await writeFile(authPath, "{}\n", "utf8");
+
+  const authStorage = AuthStorage.create(authPath);
+  await writeFile(authPath, `${JSON.stringify({ exa: { type: "api_key", key: "file-key" } }, null, 2)}\n`, "utf8");
+
+  assert.equal(await getApiKey(authStorage), "file-key");
 });
 
 test("errors when the auth.json apiKey is empty", async () => {
