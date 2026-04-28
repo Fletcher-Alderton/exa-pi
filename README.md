@@ -32,7 +32,7 @@ Restart Pi or run `/reload` after installation.
 
 ## API key
 
-Create an Exa API key at <https://dashboard.exa.ai/api-keys>, then add it to Pi's auth file at `~/.pi/agent/auth.json`:
+Create an Exa API key at <https://dashboard.exa.ai/api-keys>, then add this exact provider entry to Pi's auth file at `~/.pi/agent/auth.json`:
 
 ```json
 {
@@ -43,7 +43,7 @@ Create an Exa API key at <https://dashboard.exa.ai/api-keys>, then add it to Pi'
 }
 ```
 
-The Exa API key must be stored directly in this `auth.json` entry.
+The extension reads the stored `exa` credential from Pi auth storage and requires `type` to be `api_key`. The `key` value must be the literal Exa API key string.
 
 Do not commit API keys.
 
@@ -64,7 +64,7 @@ Searches Exa and returns matching pages.
 Common parameters:
 
 - `query` — search query.
-- `numResults` — result count, default `5`.
+- `numResults` — result count from `1` to `100`, default `5`.
 - `type` — `auto`, `neural`, `fast`, `deep-lite`, `deep`, `deep-reasoning`, or `instant`.
 - `category` — optional category filter.
 - `includeDomains` / `excludeDomains` — domain filters.
@@ -87,7 +87,7 @@ Finds pages similar to a URL.
 Common parameters:
 
 - `url` — source URL.
-- `numResults` — result count, default `5`.
+- `numResults` — result count from `1` to `100`, default `5`.
 - `includeDomains` / `excludeDomains` — domain filters.
 - `excludeSourceDomain` — exclude the source URL's domain.
 - `startPublishedDate` / `endPublishedDate` — `YYYY-MM-DD` date filters.
@@ -97,7 +97,11 @@ Common parameters:
 
 ### Missing API key
 
-If a tool reports a missing API key, add an `exa` API-key entry to `~/.pi/agent/auth.json`, then reload Pi.
+If a tool reports a missing API key, add the `exa` API-key entry shown above to `~/.pi/agent/auth.json`, then reload Pi.
+
+### Invalid auth entry
+
+The `exa` entry in `~/.pi/agent/auth.json` must use `"type": "api_key"`, and `key` must be a non-empty string.
 
 ### Invalid API key or Exa API errors
 
