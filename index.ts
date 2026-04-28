@@ -1,32 +1,39 @@
-import { Type } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
+import { StringEnum, Type } from "@mariozechner/pi-ai";
+import { AuthStorage, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 const EXA_BASE = "https://api.exa.ai";
-const KEY_FILE = join(homedir(), ".pi", "exa-api-key");
+const EXA_AUTH_PROVIDER = "exa";
 
-function getApiKey(): string {
-  if (process.env.EXA_API_KEY) return process.env.EXA_API_KEY;
-  try {
-    const stored = readFileSync(KEY_FILE, "utf-8").trim();
-    if (stored) return stored;
-  } catch {}
-  throw new Error("EXA_API_KEY not set. Run /exa to enter your key, or set the EXA_API_KEY environment variable.");
+function normalizeApiKey(value: unknown, source: string): string {
+  if (typeof value !== "string") throw new Error(`Exa apiKey in ${source} must be a string.`);
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`Exa apiKey in ${source} must be a non-empty string.`);
+  return trimmed;
 }
 
-function saveApiKey(key: string): void {
-  mkdirSync(join(homedir(), ".pi"), { recursive: true });
-  writeFileSync(KEY_FILE, key, { mode: 0o600 });
+export async function getApiKey(authStorage: AuthStorage): Promise<string> {
+  const credential = authStorage.get(EXA_AUTH_PROVIDER);
+  if (!credential) {
+    throw new Error(
+      'Missing Exa API key. Add { "exa": { "type": "api_key", "key": "YOUR_KEY" } } to ~/.pi/agent/auth.json.',
+    );
+  }
+  if (credential.type !== "api_key") {
+    throw new Error('Exa credential in ~/.pi/agent/auth.json must use { "type": "api_key", "key": "YOUR_KEY" }.');
+  }
+  if (typeof credential.key !== "string") {
+    throw new Error("Exa credential key in ~/.pi/agent/auth.json must be a string.");
+  }
+
+  return normalizeApiKey(credential.key, "Pi auth.json provider \"exa\"");
 }
 
-async function exaFetch(path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
+async function exaFetch(path: string, authStorage: AuthStorage, body: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
   const resp = await fetch(`${EXA_BASE}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": getApiKey(),
+      "x-api-key": await getApiKey(authStorage),
     },
     body: JSON.stringify(body),
     signal,
@@ -61,20 +68,6 @@ function buildContents(text?: boolean, highlights?: boolean, summary?: boolean):
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.registerCommand("exa", {
-    description: "Set your Exa API key",
-    handler: async (_args, ctx) => {
-      const key = await ctx.ui.input("Exa API Key", "Paste your key from https://dashboard.exa.ai/api-keys");
-      if (!key) {
-        ctx.ui.notify("Cancelled.", "info");
-        return;
-      }
-      saveApiKey(key.trim());
-      process.env.EXA_API_KEY = key.trim();
-      ctx.ui.notify("Exa API key saved!", "success");
-    },
-  });
-
   pi.registerTool({
     name: "exa_search",
     label: "Exa Search",
@@ -83,21 +76,21 @@ export default function (pi: ExtensionAPI) {
     promptGuidelines: ["Use exa_search when the user asks for web research, recent sources, or current documentation."],
     parameters: Type.Object({
       query: Type.String({ description: "Search query" }),
-      numResults: Type.Optional(Type.Integer({ description: "Number of results (1-100, default 5)", default: 5 })),
-      type: Type.Optional(Type.Union([
-        Type.Literal("auto"),
-        Type.Literal("neural"),
-        Type.Literal("fast"),
-        Type.Literal("deep-lite"),
-        Type.Literal("deep"),
-        Type.Literal("deep-reasoning"),
-        Type.Literal("instant"),
-      ], { description: "Search type (default: auto)" })),
+      numResults: Type.Optional(Type.Integer({ description: "Number of results (1-100, default 5)", minimum: 1, maximum: 100, default: 5 })),
+      type: Type.Optional(StringEnum([
+        "auto",
+        "neural",
+        "fast",
+        "deep-lite",
+        "deep",
+        "deep-reasoning",
+        "instant",
+      ] as const, { description: "Search type (default: auto)", default: "auto" })),
       category: Type.Optional(Type.String({ description: "Category filter: company, research paper, news, personal site, people, financial report" })),
       includeDomains: Type.Optional(Type.Array(Type.String(), { description: "Only include results from these domains" })),
       excludeDomains: Type.Optional(Type.Array(Type.String(), { description: "Exclude results from these domains" })),
-      startPublishedDate: Type.Optional(Type.String({ description: "Only results published after this date (YYYY-MM-DD)" })),
-      endPublishedDate: Type.Optional(Type.String({ description: "Only results published before this date (YYYY-MM-DD)" })),
+      startPublishedDate: Type.Optional(Type.String({ description: "Only results published after this date (YYYY-MM-DD)", pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
+      endPublishedDate: Type.Optional(Type.String({ description: "Only results published before this date (YYYY-MM-DD)", pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
       text: Type.Optional(Type.Boolean({ description: "Include full page text in results" })),
       highlights: Type.Optional(Type.Boolean({ description: "Include key highlights from pages" })),
       summary: Type.Optional(Type.Boolean({ description: "Include AI-generated summary of each page" })),
@@ -114,7 +107,7 @@ export default function (pi: ExtensionAPI) {
       const contents = buildContents(params.text, params.highlights, params.summary);
       if (contents) body.contents = contents;
 
-      const data = await exaFetch("/search", body, signal);
+      const data = await exaFetch("/search", _ctx.modelRegistry.authStorage, body, signal);
       const text = formatResults(data.results);
       return {
         content: [{ type: "text", text }],
@@ -141,7 +134,7 @@ export default function (pi: ExtensionAPI) {
       if (params.highlights) body.highlights = true;
       if (params.summary) body.summary = true;
 
-      const data = await exaFetch("/contents", body, signal);
+      const data = await exaFetch("/contents", _ctx.modelRegistry.authStorage, body, signal);
       const failedUrls = data.results?.filter((r: any) => r.statusCode && r.statusCode !== 200) ?? [];
       let text = formatResults(data.results?.filter((r: any) => !r.statusCode || r.statusCode === 200) ?? []);
       if (failedUrls.length) {
@@ -162,12 +155,12 @@ export default function (pi: ExtensionAPI) {
     promptGuidelines: ["Use exa_find_similar when the user provides a URL and wants related pages."],
     parameters: Type.Object({
       url: Type.String({ description: "URL to find similar pages for" }),
-      numResults: Type.Optional(Type.Integer({ description: "Number of results (1-100, default 5)", default: 5 })),
+      numResults: Type.Optional(Type.Integer({ description: "Number of results (1-100, default 5)", minimum: 1, maximum: 100, default: 5 })),
       includeDomains: Type.Optional(Type.Array(Type.String(), { description: "Only include results from these domains" })),
       excludeDomains: Type.Optional(Type.Array(Type.String(), { description: "Exclude results from these domains" })),
       excludeSourceDomain: Type.Optional(Type.Boolean({ description: "Exclude results from the source URL's domain" })),
-      startPublishedDate: Type.Optional(Type.String({ description: "Only results published after this date (YYYY-MM-DD)" })),
-      endPublishedDate: Type.Optional(Type.String({ description: "Only results published before this date (YYYY-MM-DD)" })),
+      startPublishedDate: Type.Optional(Type.String({ description: "Only results published after this date (YYYY-MM-DD)", pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
+      endPublishedDate: Type.Optional(Type.String({ description: "Only results published before this date (YYYY-MM-DD)", pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
       text: Type.Optional(Type.Boolean({ description: "Include full page text in results" })),
       highlights: Type.Optional(Type.Boolean({ description: "Include key highlights from pages" })),
       summary: Type.Optional(Type.Boolean({ description: "Include AI-generated summary of each page" })),
@@ -183,7 +176,7 @@ export default function (pi: ExtensionAPI) {
       const contents = buildContents(params.text, params.highlights, params.summary);
       if (contents) body.contents = contents;
 
-      const data = await exaFetch("/findSimilar", body, signal);
+      const data = await exaFetch("/findSimilar", _ctx.modelRegistry.authStorage, body, signal);
       const text = formatResults(data.results);
       return {
         content: [{ type: "text", text }],

@@ -1,7 +1,57 @@
 {
   "name": "exa-pi",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Pi coding agent extension that adds Exa-powered web search tools.",
   "type": "module",
+  "license": "MIT",
+  "author": "Fletcher Alderton <109054210+Fletcher-Alderton@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fletcher-Alderton/exa-pi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Fletcher-Alderton/exa-pi/issues"
+  },
+  "homepage": "https://github.com/Fletcher-Alderton/exa-pi#readme",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "exa",
+    "web-search",
+    "search",
+    "ai-tools"
+  ],
+  "files": [
+    "index.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "validate": "npm run typecheck && npm test",
+    "prepack": "npm run validate"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-ai": "0.70.5",
+    "@mariozechner/pi-coding-agent": "0.70.5",
+    "@types/node": "^20.19.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
