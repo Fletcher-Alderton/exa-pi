@@ -175,3 +175,34 @@ test("Exa HTTP errors include status and provider body", async () => {
     globalThis.fetch = previousFetch;
   }
 });
+
+test("proxy fetch failure retries direct", async () => {
+  const ctx = makeContext();
+  const tools = registerTools();
+  const search = tools.get("exa_search");
+  assert.ok(search);
+
+  const previousFetch = globalThis.fetch;
+  const previousProxy = process.env.HTTPS_PROXY;
+  let calls = 0;
+  try {
+    process.env.HTTPS_PROXY = "http://proxy.example:8080";
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit & { dispatcher?: unknown }) => {
+      calls += 1;
+      if (calls === 1) {
+        assert.ok(init?.dispatcher);
+        throw new Error("proxy unreachable");
+      }
+      assert.equal(init?.dispatcher, undefined);
+      return new Response(JSON.stringify({ results: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+
+    const result = await search.execute("call-5", { query: "x" }, undefined, undefined, ctx);
+    assert.equal(calls, 2);
+    assert.equal(result.details.resultCount, 0);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousProxy === undefined) delete process.env.HTTPS_PROXY;
+    else process.env.HTTPS_PROXY = previousProxy;
+  }
+});

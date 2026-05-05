@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { AuthStorage } from "@mariozechner/pi-coding-agent";
 
-import { getApiKey } from "../index.ts";
+import { getApiKey, getProxyUrlFromEnv } from "../index.ts";
 
 test("reads the Exa apiKey from Pi auth.json storage", async () => {
   const authStorage = AuthStorage.inMemory({ exa: { type: "api_key", key: " auth-key " } });
@@ -51,4 +51,15 @@ test("errors when the Exa auth.json credential is not an api_key", async () => {
     () => getApiKey(authStorage),
     /must use \{ "type": "api_key", "key": "YOUR_KEY" \}/,
   );
+});
+
+test("reads proxy URL from environment in priority order", () => {
+  assert.equal(getProxyUrlFromEnv({
+    HTTPS_PROXY: " https://https-proxy.example:8443 ",
+    ALL_PROXY: "http://all-proxy.example:8080",
+  } as NodeJS.ProcessEnv), "https://https-proxy.example:8443");
+
+  assert.equal(getProxyUrlFromEnv({
+    all_proxy: "http://lower-all-proxy.example:8080",
+  } as NodeJS.ProcessEnv), "http://lower-all-proxy.example:8080");
 });

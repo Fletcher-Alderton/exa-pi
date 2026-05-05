@@ -107,6 +107,23 @@ The `exa` entry in `~/.pi/agent/auth.json` must use `"type": "api_key"`, and `ke
 
 Verify the key in the Exa dashboard and check your account quota/billing status. The tool reports the Exa HTTP status and provider error body when available.
 
+### Corporate proxy environments
+
+Set one environment variable before starting Pi:
+
+```bash
+export HTTPS_PROXY="http://proxy.company.example:8080"
+# or
+export ALL_PROXY="http://proxy.company.example:8080"
+```
+
+```powershell
+$env:HTTPS_PROXY = "http://proxy.company.example:8080"
+setx HTTPS_PROXY "http://proxy.company.example:8080"
+```
+
+The extension checks `HTTPS_PROXY`, `https_proxy`, `ALL_PROXY`, then `all_proxy`. It does not read OS proxy/PAC settings and does not honor `NO_PROXY`. If the proxy is unreachable, it retries direct.
+
 ## Development
 
 Install dependencies:

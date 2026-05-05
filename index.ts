@@ -1,8 +1,19 @@
 import { StringEnum, Type } from "@mariozechner/pi-ai";
 import { AuthStorage, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { ProxyAgent } from "undici";
 
 const EXA_BASE = "https://api.exa.ai";
 const EXA_AUTH_PROVIDER = "exa";
+const PROXY_ENV_KEYS = ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"] as const;
+
+type FetchInitWithDispatcher = RequestInit & { dispatcher?: ProxyAgent };
+export function getProxyUrlFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  for (const key of PROXY_ENV_KEYS) {
+    const value = env[key]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
 
 function normalizeApiKey(value: unknown, source: string): string {
   if (typeof value !== "string") throw new Error(`Exa apiKey in ${source} must be a string.`);
@@ -29,8 +40,16 @@ export async function getApiKey(authStorage: AuthStorage): Promise<string> {
   return normalizeApiKey(credential.key, "Pi auth.json provider \"exa\"");
 }
 
+let cachedProxyAgent: { url: string; agent: ProxyAgent } | undefined;
+
+function getProxyAgent(proxyUrl: string): ProxyAgent {
+  if (cachedProxyAgent?.url !== proxyUrl) cachedProxyAgent = { url: proxyUrl, agent: new ProxyAgent(proxyUrl) };
+  return cachedProxyAgent.agent;
+}
+
 async function exaFetch(path: string, authStorage: AuthStorage, body: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
-  const resp = await fetch(`${EXA_BASE}${path}`, {
+  const proxyUrl = getProxyUrlFromEnv();
+  const init: FetchInitWithDispatcher = {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -38,7 +57,18 @@ async function exaFetch(path: string, authStorage: AuthStorage, body: Record<str
     },
     body: JSON.stringify(body),
     signal,
-  });
+  };
+  if (proxyUrl) init.dispatcher = getProxyAgent(proxyUrl);
+
+  let resp: Response;
+  try {
+    resp = await fetch(`${EXA_BASE}${path}`, init);
+  } catch (error) {
+    if (!proxyUrl || signal?.aborted) throw error;
+    const { dispatcher: _dispatcher, ...directInit } = init;
+    resp = await fetch(`${EXA_BASE}${path}`, directInit);
+  }
+
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
     throw new Error(`Exa API error (${resp.status}): ${JSON.stringify(err)}`);
@@ -120,7 +150,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "exa_get_contents",
     label: "Exa Get Contents",
-    description: "Fetch cleaned content from one or more URLs. Returns page text, highlights, and/or summaries. Use when you already have URLs and need their content.",
+    description: "Fetch cleaned content from one or more URLs. Returns page text, highlights, and/or summaries. Use when you already have URLs and wants the page contents.",
     promptSnippet: "Fetch cleaned content from one or more known URLs.",
     promptGuidelines: ["Use exa_get_contents when the user already has URLs and wants the page contents."],
     parameters: Type.Object({
@@ -151,7 +181,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "exa_find_similar",
     label: "Exa Find Similar",
-    description: "Find web pages similar to a given URL. Use when the user provides a URL and wants to discover related pages, articles, or resources.",
+    description: "Find web pages similar to a given URL. Use when the user provides a URL and wants to discover related pages or resources.",
     promptSnippet: "Find pages similar to a given URL.",
     promptGuidelines: ["Use exa_find_similar when the user provides a URL and wants related pages."],
     parameters: Type.Object({
@@ -159,7 +189,7 @@ export default function (pi: ExtensionAPI) {
       numResults: Type.Optional(Type.Integer({ description: "Number of results (1-100, default 5)", minimum: 1, maximum: 100, default: 5 })),
       includeDomains: Type.Optional(Type.Array(Type.String(), { description: "Only include results from these domains" })),
       excludeDomains: Type.Optional(Type.Array(Type.String(), { description: "Exclude results from these domains" })),
-      excludeSourceDomain: Type.Optional(Type.Boolean({ description: "Exclude results from the source URL's domain" })),
+      excludeSourceDomain: Type.Optional(Type.Boolean({ description: "Exclude results from source URL's domain" })),
       startPublishedDate: Type.Optional(Type.String({ description: "Only results published after this date (YYYY-MM-DD)", pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
       endPublishedDate: Type.Optional(Type.String({ description: "Only results published before this date (YYYY-MM-DD)", pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
       text: Type.Optional(Type.Boolean({ description: "Include full page text in results" })),
